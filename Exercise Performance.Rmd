@@ -1,0 +1,109 @@
+---
+title: "PML Assignment 1: Exercise Performance"
+author: "Tina Helg, PhD"
+date: "Thursday, July 24, 2014"
+output: html_document
+---
+```{r, echo=FALSE,results='hide', message=FALSE, warning=FALSE}
+library(caret)
+library(randomForest)
+```
+##Summary
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify *how well they do it*. 
+
+The goal is to quantify how well participants do an exersize using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset). 
+
+The outcome of the model is to predict if an exerciise is being executed correctly and if not then what is the most likely class of error. 
+
+##Data Analysis
+```{r, cache=TRUE, echo=FALSE}
+download.file(url = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+              , destfile = "training.csv")
+training = read.csv(file = "training.csv",stringsAsFactors = FALSE)
+```
+
+### Pre-processing
+```{r, cache=TRUE, echo=FALSE}
+## Eliminate columns where mostly NA's Summary rows
+keep = !(is.na(training[1,])|training[1,]==""|(names(training[1,])=="new_window")
+         |names(training[1,])=="raw_timestamp_part_2"|names(training[1,])=="raw_timestamp_part_1"
+         |names(training[1,])=="user_name"
+         |names(training[1,])=="X"
+         |names(training[1,])=="cvtd_timestamp"|(names(training[1,])=="num_window")
+)
+prcTraining <- training[,keep]
+prcTraining$classe <-factor(prcTraining$classe)
+
+## Eliminate correlated variables
+## pca would be better if I could get it to work
+M<-cor(prcTraining[,-c(53)])
+## finCorrelation chooses the best of the paired correlates to keep
+corrRemove = findCorrelation(M, cutoff = .75, verbose = FALSE)
+prcTraining2<-prcTraining[,-(corrRemove)]
+prcTraining2$classe<-factor(prcTraining2$classe)
+```
+
+A visual inspection of the data set revealed many columns containing *na's* and empty strings. Subsequently these have been removed from the training dataset. The *header* rows have also been removed to leave only numeric variables with *classe* as the output variable. Intriguingly there are parts of the data set look as though the sensors had stopped transmitting.
+
+The next process was to identify correlated variables and remove the least useful using the *findCorrelation()* function. 33 independent variables remain.
+
+### Splitting
+```{r, cache=TRUE}
+set.seed(123456)
+inTrain = createDataPartition(y=prcTraining2$classe,p=.1,list = FALSE)
+inTest1 = createDataPartition(y=prcTraining2$classe[-inTrain],p=.5,list = FALSE)
+train1 = prcTraining2[inTrain,]
+testing1 = prcTraining2[inTest1,]
+testing2 = prcTraining2[-c(inTrain,inTest1),]
+train1$classe = factor(train1$classe)
+testing1$classe = factor(testing1$classe)
+testing2$classe = factor(testing2$classe)
+```
+
+The data are split randomly in to 3 sets, *train1, testing1, and testing2* using *createDataPartition()*.
+
+### Model Fitting and Testing
+```{r, cache=TRUE, echo=FALSE, message=FALSE}
+myControl = trainControl(method='cv',number=5,repeats=2,returnResamp='none')
+set.seed(123456)
+modfit<-train(classe~.
+             ,method = "rf",data= train1,importance = TRUE
+             ##, preProcess("pca")
+             , prox=TRUE, trControl=myControl)
+```
+The algorythm used is a random forest with cross validation to help prevent overfitting. The model has an estimated out of sample error of *6.36%*.
+```{r}
+modfit$finalModel
+```
+When applying the fitted model to our two test sets the out of sample error is acceptable.
+```{r, cache=TRUE, echo=FALSE}
+confusionMatrix(testing1$classe,predict(modfit,testing1))
+confusionMatrix(testing2$classe,predict(modfit,testing2))
+```
+
+##Conclusion
+
+The model has an out of sample accuracy of over 93%. This is sufficient to categorise the exercise into each class of error. This could then be used to provide immediate feedback to the user for correction of technique during exercise.
+
+##Improvements
+
+Exploring the data showed,
+
+* outliers in the data where values were perfectly constant for a user.
+
+* artifacts in the data between users (eg. stepwise level shifts)
+
+Improvements to the accuracy could easily be made by:
+
+* deleting the records containing outliers
+
+* standardize the test set as a function of user
+
+Sadly I ran out of time :-)
+
+
+##Acknowledgements
+Dataset provided by 
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: <http://groupware.les.inf.puc-rio.br/har#ixzz38LjNOz71>
